@@ -104,6 +104,10 @@ type Props = {
   accessibilityLabel?: string;
   /** Whether this is the currently selected terminal in a split. */
   selected?: boolean;
+  /** Plain-text visible terminal screen callback for transcript-style clients. */
+  onScreenTextChange?: (text: string, terminalId: string) => void;
+  /** Queue a complete line of input through the active PTY connection. */
+  externalInput?: { id: number; terminalId: string; text: string } | null;
 };
 
 type UploadCandidate = {
@@ -169,6 +173,8 @@ export function TerminalView({
   terminalScreenReaderText = false,
   accessibilityLabel = "Terminal",
   selected = false,
+  onScreenTextChange,
+  externalInput = null,
 }: Props) {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLElement | null>(null);
@@ -176,6 +182,7 @@ export function TerminalView({
   const mobileCommandInputRef = useRef<HTMLInputElement | HTMLTextAreaElement | null>(null);
   const rendererRef = useRef<TerminalRenderer | null>(null);
   const rendererGenerationRef = useRef(0);
+  const lastExternalInputIdRef = useRef<number | null>(null);
   const rendererReadyRef = useRef<TerminalRendererReady | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const requestReconnectRef = useRef<(reason: ReconnectReason) => void>(() => {});
@@ -637,7 +644,7 @@ export function TerminalView({
   useEffect(() => {
     setAccessibleScreen("");
     const ready = rendererReady;
-    if (!terminalScreenReaderText || !ready) {
+    if ((!terminalScreenReaderText && !onScreenTextChange) || !ready) {
       ready?.renderer.setAccessibleScreenListener(null);
       return;
     }
@@ -650,10 +657,11 @@ export function TerminalView({
         terminalIdRef.current === terminalId
       ) {
         setAccessibleScreen(text);
+        onScreenTextChange?.(text, terminalId);
       }
     });
     return () => renderer.setAccessibleScreenListener(null);
-  }, [rendererReady, terminalScreenReaderText]);
+  }, [onScreenTextChange, rendererReady, terminalScreenReaderText]);
 
   useEffect(() => {
     const terminalId = pane?.terminal_id ?? null;
@@ -1169,6 +1177,21 @@ export function TerminalView({
     }
     resizeTerminal("refresh");
   }, [refitToken, resizeTerminal]);
+
+  useEffect(() => {
+    if (!externalInput || externalInput.terminalId !== pane?.terminal_id) {
+      return;
+    }
+    if (lastExternalInputIdRef.current === externalInput.id) {
+      return;
+    }
+    lastExternalInputIdRef.current = externalInput.id;
+    if (terminalInputBlockedRef.current) {
+      return;
+    }
+    inputQueueRef.current.push(externalInput.text, "\r");
+    flushQueuedTerminalInput();
+  }, [externalInput, flushQueuedTerminalInput, pane?.terminal_id]);
 
   useEffect(() => {
     if (!mobileControls || !pane) {

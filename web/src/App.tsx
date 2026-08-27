@@ -8,6 +8,7 @@ import {
   ListCollapse,
   ListRestart,
   MoreVertical,
+  MessageSquare,
   PanelLeft,
   Pin,
   Plus,
@@ -47,6 +48,7 @@ import { Capacitor } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { AgentIcon, agentIconKind } from "./AgentIcon";
 import { ActivityView } from "./ActivityView";
+import { ChatView } from "./ChatView";
 import {
   agentActivityKey,
   agentActivityTimestamps,
@@ -204,7 +206,7 @@ type LoadState = "loading" | "ready" | "error";
 type Scope = "space" | "all";
 type HostScope = "selected" | "all";
 type SidebarView = "agents" | "tabs" | "notes";
-type StageViewMode = "activity" | "terminal";
+type StageViewMode = "chat" | "activity" | "terminal";
 type AgentSort = "attention" | "status" | "workspace" | "lastStatusChange";
 type AgentGroup = "none" | "host" | "workspace" | "hostWorkspace";
 type SpaceGroup = "none" | "host";
@@ -1026,7 +1028,17 @@ export function App() {
   const [resizingNotesListPane, setResizingNotesListPane] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(initialPrefs.sidebarOpen);
   const [showDetail, setShowDetail] = useState(false);
-  const [stageViewMode, setStageViewMode] = useState<StageViewMode>("activity");
+  const [stageViewMode, setStageViewMode] = useState<StageViewMode>("chat");
+  const [terminalScreen, setTerminalScreen] = useState<{ terminalId: string; text: string } | null>(null);
+  const [chatInputRequest, setChatInputRequest] = useState<{ id: number; terminalId: string; text: string } | null>(null);
+  const handleTerminalScreenText = useCallback((text: string, terminalId: string) => {
+    setTerminalScreen((current) =>
+      current?.terminalId === terminalId && current.text === text ? current : { terminalId, text },
+    );
+  }, []);
+  const sendTerminalChatMessage = useCallback((terminalId: string, text: string) => {
+    setChatInputRequest((current) => ({ id: (current?.id ?? 0) + 1, terminalId, text }));
+  }, []);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [spaceReorderMode, setSpaceReorderMode] = useState<SpaceReorderMode | null>(null);
   const [spaceReorderAnnouncement, setSpaceReorderAnnouncement] = useState("");
@@ -3976,6 +3988,16 @@ export function App() {
             <div className="stage-view-switch" role="group" aria-label="Pane view">
               <button
                 type="button"
+                data-active={stageViewMode === "chat" ? "true" : "false"}
+                aria-pressed={stageViewMode === "chat"}
+                title="Chat transcript from the Herdr terminal"
+                onClick={() => setStageViewMode("chat")}
+              >
+                <MessageSquare size={15} />
+                <span>Chat</span>
+              </button>
+              <button
+                type="button"
                 data-active={stageViewMode === "activity" ? "true" : "false"}
                 aria-pressed={stageViewMode === "activity"}
                 title="Structured agent activity"
@@ -4081,75 +4103,124 @@ export function App() {
           ) : null}
           {selectedPane ? <StatusBadge status={selectedPane.agent_status} /> : null}
         </header>
-        {renderTerminal && stageViewMode === "activity" ? (
-          <ActivityView
-            pane={selectedPane}
-            bridgeLabel={selectedRuntime?.label ?? null}
-            lastStatusTransitionAt={selectedPaneLastTransition}
-          />
-        ) : showSplit && splitCells ? (
-          <SplitGrid
-            cells={splitCells}
-            selectedPaneId={selectedPane?.pane_id ?? null}
-            onSelectPane={(pane) => {
-              if (selectedRuntime) {
-                openPane(selectedRuntime.id, pane);
+        <div className="stage-body">
+          {renderTerminal && stageViewMode !== "terminal" ? (
+            <div className="terminal-transcript-source" aria-hidden="true">
+              <TerminalView
+                pane={selectedPane}
+                connectionKey={selectedRuntime?.connectionKey ?? "disconnected"}
+                resumeToken={selectedRuntime?.resumeToken ?? 0}
+                httpUrl={selectedHttpUrl}
+                wsUrl={selectedWsUrl}
+                autoFocus={false}
+                scrollSensitivity={0.4}
+                mobileControls={false}
+                cursorBlink={false}
+                terminalFontSizePx={terminalFontSizePx}
+                terminalScreenReaderText={false}
+                mobileControlsScalePercent={mobileControlsScalePercent}
+                mobileTapTarget={mobileTerminalTapTarget}
+                mobileLongPressBehavior="off"
+                mobileTouchSelectionEndpointTimeoutMs={mobileTouchSelectionEndpointTimeoutMs}
+                mobileCommandExpandingInput={false}
+                mobileCommandEnterNewline={false}
+                terminalInputTransport={terminalInputTransport}
+                terminalInputBatchDelayMs={terminalInputBatchDelayMs}
+                terminalOutputCoalesceMs={terminalOutputCoalesceMs}
+                refitToken={refitToken}
+                onScreenTextChange={handleTerminalScreenText}
+                externalInput={chatInputRequest}
+                accessibilityLabel="Terminal transcript source"
+                selected={false}
+              />
+            </div>
+          ) : null}
+
+          {renderTerminal && stageViewMode === "chat" ? (
+            <ChatView
+              pane={selectedPane}
+              bridgeId={selectedRuntime?.id ?? "local"}
+              screenText={
+                selectedPane && terminalScreen?.terminalId === selectedPane.terminal_id
+                  ? terminalScreen.text
+                  : ""
               }
-              if (isTouchInput) {
-                requestTerminalFocus();
+              onSend={(text) => {
+                if (selectedPane) sendTerminalChatMessage(selectedPane.terminal_id, text);
+              }}
+              onOpenTerminal={() => setStageViewMode("terminal")}
+            />
+          ) : renderTerminal && stageViewMode === "activity" ? (
+            <ActivityView
+              pane={selectedPane}
+              bridgeLabel={selectedRuntime?.label ?? null}
+              lastStatusTransitionAt={selectedPaneLastTransition}
+            />
+          ) : stageViewMode === "terminal" && showSplit && splitCells ? (
+            <SplitGrid
+              cells={splitCells}
+              selectedPaneId={selectedPane?.pane_id ?? null}
+              onSelectPane={(pane) => {
+                if (selectedRuntime) {
+                  openPane(selectedRuntime.id, pane);
+                }
+                if (isTouchInput) {
+                  requestTerminalFocus();
+                }
+              }}
+              refitToken={refitToken}
+              focusToken={terminalFocusToken}
+              touchInput={isTouchInput}
+              terminalFontSizePx={terminalFontSizePx}
+              terminalScreenReaderText={terminalScreenReaderText}
+              mobileControlsScalePercent={mobileControlsScalePercent}
+              mobileTapTarget={mobileTerminalTapTarget}
+              mobileLongPressBehavior={mobileLongPressBehavior}
+              mobileTouchSelectionEndpointTimeoutMs={mobileTouchSelectionEndpointTimeoutMs}
+              mobileCommandExpandingInput={mobileCommandExpandingInput}
+              mobileCommandEnterNewline={mobileCommandEnterNewline}
+              terminalInputTransport={terminalInputTransport}
+              terminalInputBatchDelayMs={terminalInputBatchDelayMs}
+              terminalOutputCoalesceMs={terminalOutputCoalesceMs}
+              connectionKey={selectedRuntime?.connectionKey ?? "disconnected"}
+              resumeToken={selectedRuntime?.resumeToken ?? 0}
+              httpUrl={selectedHttpUrl}
+              wsUrl={selectedWsUrl}
+            />
+          ) : renderTerminal && stageViewMode === "terminal" ? (
+            <TerminalView
+              pane={selectedPane}
+              connectionKey={selectedRuntime?.connectionKey ?? "disconnected"}
+              resumeToken={selectedRuntime?.resumeToken ?? 0}
+              httpUrl={selectedHttpUrl}
+              wsUrl={selectedWsUrl}
+              autoFocus={!isTouchInput}
+              scrollSensitivity={isTouchInput ? 2 : 0.4}
+              mobileControls={isTouchInput}
+              cursorBlink={!isTouchInput}
+              terminalFontSizePx={terminalFontSizePx}
+              terminalScreenReaderText={terminalScreenReaderText}
+              mobileControlsScalePercent={mobileControlsScalePercent}
+              mobileTapTarget={mobileTerminalTapTarget}
+              mobileLongPressBehavior={mobileLongPressBehavior}
+              mobileTouchSelectionEndpointTimeoutMs={mobileTouchSelectionEndpointTimeoutMs}
+              mobileCommandExpandingInput={mobileCommandExpandingInput}
+              mobileCommandEnterNewline={mobileCommandEnterNewline}
+              terminalInputTransport={terminalInputTransport}
+              terminalInputBatchDelayMs={terminalInputBatchDelayMs}
+              terminalOutputCoalesceMs={terminalOutputCoalesceMs}
+              refitToken={refitToken}
+              focusToken={terminalFocusToken}
+              onScreenTextChange={handleTerminalScreenText}
+              accessibilityLabel={
+                selectedPane ? `Selected pane terminal: ${paneTitle(selectedPane)}` : "Terminal"
               }
-            }}
-            refitToken={refitToken}
-            focusToken={terminalFocusToken}
-            touchInput={isTouchInput}
-            terminalFontSizePx={terminalFontSizePx}
-            terminalScreenReaderText={terminalScreenReaderText}
-            mobileControlsScalePercent={mobileControlsScalePercent}
-            mobileTapTarget={mobileTerminalTapTarget}
-            mobileLongPressBehavior={mobileLongPressBehavior}
-            mobileTouchSelectionEndpointTimeoutMs={mobileTouchSelectionEndpointTimeoutMs}
-            mobileCommandExpandingInput={mobileCommandExpandingInput}
-            mobileCommandEnterNewline={mobileCommandEnterNewline}
-            terminalInputTransport={terminalInputTransport}
-            terminalInputBatchDelayMs={terminalInputBatchDelayMs}
-            terminalOutputCoalesceMs={terminalOutputCoalesceMs}
-            connectionKey={selectedRuntime?.connectionKey ?? "disconnected"}
-            resumeToken={selectedRuntime?.resumeToken ?? 0}
-            httpUrl={selectedHttpUrl}
-            wsUrl={selectedWsUrl}
-          />
-        ) : renderTerminal ? (
-          <TerminalView
-            pane={selectedPane}
-            connectionKey={selectedRuntime?.connectionKey ?? "disconnected"}
-            resumeToken={selectedRuntime?.resumeToken ?? 0}
-            httpUrl={selectedHttpUrl}
-            wsUrl={selectedWsUrl}
-            autoFocus={!isTouchInput}
-            scrollSensitivity={isTouchInput ? 2 : 0.4}
-            mobileControls={isTouchInput}
-            cursorBlink={!isTouchInput}
-            terminalFontSizePx={terminalFontSizePx}
-            terminalScreenReaderText={terminalScreenReaderText}
-            mobileControlsScalePercent={mobileControlsScalePercent}
-            mobileTapTarget={mobileTerminalTapTarget}
-            mobileLongPressBehavior={mobileLongPressBehavior}
-            mobileTouchSelectionEndpointTimeoutMs={mobileTouchSelectionEndpointTimeoutMs}
-            mobileCommandExpandingInput={mobileCommandExpandingInput}
-            mobileCommandEnterNewline={mobileCommandEnterNewline}
-            terminalInputTransport={terminalInputTransport}
-            terminalInputBatchDelayMs={terminalInputBatchDelayMs}
-            terminalOutputCoalesceMs={terminalOutputCoalesceMs}
-            refitToken={refitToken}
-            focusToken={terminalFocusToken}
-            accessibilityLabel={
-              selectedPane ? `Selected pane terminal: ${paneTitle(selectedPane)}` : "Terminal"
-            }
-            selected={Boolean(selectedPane)}
-          />
-        ) : (
-          <div className="terminal-stage" aria-hidden="true" />
-        )}
+              selected={Boolean(selectedPane)}
+            />
+          ) : (
+            <div className="terminal-stage" aria-hidden="true" />
+          )}
+        </div>
       </section>
 
       {notesPanelOpen && notesEnabled ? (

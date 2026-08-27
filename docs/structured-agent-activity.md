@@ -148,3 +148,30 @@ Add search/filtering, session lineage, trace links, export, and optional persist
 - structured events are attributable to a pane/session and ordered
 - reconnect can recover recent structured activity
 - mobile view keeps attention/approval actions usable without terminal navigation
+
+## Transcript-First Chat Layer
+
+Chat does not require an agent-specific adapter. The browser keeps a normal Herdr terminal attachment
+alive behind the Chat and Activity surfaces and asks the Ghostty renderer for its bounded plain-text
+screen mirror. That gives the web client a generic PTY-to-chat source for Pi, Codex, OpenCode, shells,
+and other interactive programs.
+
+The default pane views are now:
+
+1. **Chat** — user turns plus terminal-derived assistant turns.
+2. **Activity** — Herdr lifecycle and presentation changes.
+3. **Terminal** — the lossless raw terminal.
+
+Messages sent from Chat are queued through the same terminal WebSocket as native keyboard input, then
+terminated with Enter. This preserves bracketed terminal behavior and reconnect queuing without adding
+a second command transport.
+
+The transcriptizer removes obvious terminal chrome, suppresses echoed user input, diffs the visible
+screen against the pre-send baseline, and persists up to 100 turns per bridge + terminal in local
+storage. Herdr lifecycle state provides the generic turn boundary: `working` keeps the assistant turn
+live, `blocked` surfaces the current response without pretending completion, and `idle` / `done`
+finalize a changed response.
+
+Agent adapters are therefore optional enrichment only. They can later replace heuristic transcript
+sections with exact tool calls, diffs, approvals, subagent relationships, usage, or reasoning summaries,
+but the basic chat experience remains available to every Herdr terminal without an adapter.

@@ -1,11 +1,14 @@
 import { Bot, MessageSquare, Radio, Send, SquareTerminal, User } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
-  cleanTerminalScreen,
+  fetchPaneTranscript,
   loadTerminalChatTurns,
+  splitTerminalChatContent,
+  terminalPreviewTail,
   saveTerminalChatTurns,
   terminalChatStorageKey,
   terminalScreenDelta,
+  type TerminalChatHttpUrl,
   type TerminalChatTurn,
 } from "./terminalChat";
 import type { PaneInfo } from "./types";
@@ -14,6 +17,7 @@ type Props = {
   pane: PaneInfo | null;
   bridgeId: string;
   screenText: string;
+  httpUrl?: TerminalChatHttpUrl;
   onSend: (text: string) => void;
   onOpenTerminal: () => void;
 };
@@ -25,11 +29,12 @@ type PendingTurn = {
   sawWorking: boolean;
 };
 
-export function ChatView({ pane, bridgeId, screenText, onSend, onOpenTerminal }: Props) {
+export function ChatView({ pane, bridgeId, screenText, httpUrl, onSend, onOpenTerminal }: Props) {
   const storageKey = pane ? terminalChatStorageKey(bridgeId, pane.terminal_id) : "";
   const [turns, setTurns] = useState<TerminalChatTurn[]>([]);
   const [draft, setDraft] = useState("");
   const [pending, setPending] = useState<PendingTurn | null>(null);
+  const [paneReadText, setPaneReadText] = useState<string | null>(null);
   const finalizeTimerRef = useRef<number | null>(null);
   const previousStorageKeyRef = useRef("");
 
@@ -45,36 +50,80 @@ export function ChatView({ pane, bridgeId, screenText, onSend, onOpenTerminal }:
     if (storageKey) saveTerminalChatTurns(storageKey, turns);
   }, [storageKey, turns]);
 
+  useEffect(() => {
+    if (!pane || !httpUrl) {
+      setPaneReadText(null);
+      return;
+    }
+    const controller = new AbortController();
+    let stopped = false;
+    let timer: number | null = null;
+    const delay = pane.agent_status === "working" ? 260 : 900;
+    const refresh = async () => {
+      try {
+        const text = await fetchPaneTranscript(httpUrl, pane.pane_id, controller.signal);
+        if (stopped) return;
+        if (text === null) {
+          setPaneReadText(null);
+          return;
+        }
+        setPaneReadText(text);
+        timer = window.setTimeout(refresh, delay);
+      } catch (error) {
+        if (controller.signal.aborted || stopped) return;
+        console.debug("pane text fallback to terminal screen", error);
+        setPaneReadText(null);
+      }
+    };
+    void refresh();
+    return () => {
+      stopped = true;
+      controller.abort();
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [httpUrl, pane?.agent_status, pane?.pane_id]);
+
   useEffect(() => () => {
     if (finalizeTimerRef.current !== null) window.clearTimeout(finalizeTimerRef.current);
   }, []);
 
-  const currentPreview = useMemo(() => cleanTerminalScreen(screenText), [screenText]);
+  const transcriptText = paneReadText ?? screenText;
+  const currentPreview = useMemo(
+    () => splitTerminalChatContent(terminalPreviewTail(transcriptText)),
+    [transcriptText],
+  );
   const agentLabel = pane?.display_agent || pane?.agent || "Agent";
   const status = pane?.agent_status ?? "unknown";
   useEffect(() => {
     if (!pending || !pane) return;
-    const nextText = terminalScreenDelta(pending.baseline, screenText, pending.userText);
+    const nextDelta = terminalScreenDelta(pending.baseline, transcriptText, pending.userText);
+    const nextContent = splitTerminalChatContent(nextDelta, pending.userText);
     const sawWorking = pending.sawWorking || pane.agent_status === "working";
     if (sawWorking !== pending.sawWorking) {
       setPending((current) => current ? { ...current, sawWorking } : current);
     }
-    if (nextText) {
+    if (nextContent.text || nextContent.activity.length > 0) {
       setTurns((current) => current.map((turn) =>
         turn.id === pending.assistantId
-          ? { ...turn, text: nextText, status: pane.agent_status, live: true }
+          ? {
+              ...turn,
+              text: nextContent.text,
+              activity: nextContent.activity,
+              status: pane.agent_status,
+              live: true,
+            }
           : turn,
       ));
     }
 
     const canFinalize =
-      nextText &&
+      (nextContent.text || nextContent.activity.length > 0) &&
       (pane.agent_status === "done" || pane.agent_status === "idle") &&
-      (sawWorking || screenText !== pending.baseline);
+      (sawWorking || transcriptText !== pending.baseline);
     if (!canFinalize) return;
     if (finalizeTimerRef.current !== null) window.clearTimeout(finalizeTimerRef.current);
     finalizeTimerRef.current = window.setTimeout(() => finalizePending(pane.agent_status), 450);
-  }, [pane, pending, screenText]);
+  }, [pane, pending, transcriptText]);
 
   function finalizePending(finalStatus = status) {
     const currentPending = pending;
@@ -105,7 +154,7 @@ export function ChatView({ pane, bridgeId, screenText, onSend, onOpenTerminal }:
     setTurns((current) => [...current, userTurn, assistantTurn].slice(-100));
     setPending({
       assistantId,
-      baseline: screenText,
+      baseline: transcriptText,
       userText: text,
       sawWorking: pane.agent_status === "working",
     });
@@ -143,11 +192,17 @@ export function ChatView({ pane, bridgeId, screenText, onSend, onOpenTerminal }:
             <div className="chat-imported-heading">
               <Radio size={16} />
               <div>
-                <strong>Current terminal state</strong>
-                <span>Chat history starts with messages sent here.</span>
+                <strong>Recent terminal preview</strong>
+                <span>New messages sent here become clean chat turns.</span>
               </div>
             </div>
-            {currentPreview ? <pre>{currentPreview}</pre> : <p>Waiting for terminal output…</p>}
+            {currentPreview.activity.length > 0 ? (
+              <details className="chat-imported-activity">
+                <summary>Activity · {currentPreview.activity.length}</summary>
+                <ul>{currentPreview.activity.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ul>
+              </details>
+            ) : null}
+            {currentPreview.text ? <pre>{currentPreview.text}</pre> : <p>Waiting for terminal output…</p>}
           </section>
         ) : null}
 
@@ -193,7 +248,15 @@ function ChatBubble({ turn, agentLabel }: { turn: TerminalChatTurn; agentLabel: 
           {!isUser && turn.status ? <span>{capitalize(turn.status)}</span> : null}
           <time dateTime={new Date(turn.at).toISOString()}>{formatTime(turn.at)}</time>
         </header>
-        {turn.text ? <pre>{turn.text}</pre> : <p className="chat-working">Waiting for agent output…</p>}
+        {!isUser && turn.activity?.length ? (
+          <details className="chat-turn-activity" open={Boolean(turn.live)}>
+            <summary>Activity · {turn.activity.length}</summary>
+            <ul>{turn.activity.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ul>
+          </details>
+        ) : null}
+        {turn.text ? <pre>{turn.text}</pre> : (
+          <p className="chat-working">{turn.activity?.length ? "Working…" : "Waiting for agent output…"}</p>
+        )}
       </div>
     </article>
   );

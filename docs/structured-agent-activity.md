@@ -175,3 +175,13 @@ finalize a changed response.
 Agent adapters are therefore optional enrichment only. They can later replace heuristic transcript
 sections with exact tool calls, diffs, approvals, subagent relationships, usage, or reasoning summaries,
 but the basic chat experience remains available to every Herdr terminal without an adapter.
+
+## Generic pane-text transcript source
+
+The bridge now exposes `GET /api/pane-text?pane_id=...&lines=...` as a narrow read-only wrapper around Herdr `pane.read` with `source=recent_unwrapped`, text format, and ANSI stripping.
+
+Chat prefers this source because it preserves terminal history while joining soft-wrapped rows before presentation. While an agent is working, the client refreshes more frequently; when settled it backs off. If an older or remote bridge does not expose the endpoint, Chat automatically falls back to the Ghostty screen mirror.
+
+The transcriptizer then applies generic presentation rules rather than agent adapters: terminal prompts, provider/status footers, compaction markers, spinners, and decorative rules are removed; large visual-column gaps are split into logical lines; command/action lines are grouped under a collapsible Activity section; single-space continuation rows are rejoined without flattening Markdown lists or code fences.
+
+Existing sessions are intentionally shown only as a bounded **Recent terminal preview**. The UI does not claim to reconstruct historical user/assistant turns that were never observed by the web client. Once a message is sent through Chat, the exact pre-send pane text becomes the baseline, so subsequent assistant turns can be derived much more cleanly.

@@ -1090,6 +1090,10 @@ async fn run_server(options: BridgeOptions) -> io::Result<()> {
             get(capabilities_handler).options(preflight_handler),
         )
         .route(
+            "/api/pane-text",
+            get(pane_text_handler).options(preflight_handler),
+        )
+        .route(
             "/api/command",
             post(command_handler).options(preflight_handler),
         )
@@ -1889,6 +1893,61 @@ impl IntoResponse for LauncherPresetError {
             })),
         )
             .into_response()
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct PaneTextQuery {
+    pane_id: String,
+    lines: Option<u32>,
+}
+
+#[derive(Debug, Serialize)]
+struct PaneTextResponse {
+    pane_id: String,
+    text: String,
+    revision: u64,
+    truncated: bool,
+}
+
+async fn pane_text_handler(
+    State(state): State<BridgeState>,
+    headers: HeaderMap,
+    Query(query): Query<PaneTextQuery>,
+) -> Result<Json<PaneTextResponse>, BridgeError> {
+    ensure_allowed_request(&headers, &state.request_policy)?;
+    let pane_id = query.pane_id.trim();
+    if pane_id.is_empty() || pane_id.len() > 128 {
+        return Err(BridgeError::BadRequest("invalid pane id".to_string()));
+    }
+    let lines = query.lines.unwrap_or(240).clamp(1, 1000);
+    let request_value = serde_json::json!({
+        "id": "herdr-web:pane-text",
+        "method": "pane.read",
+        "params": {
+            "pane_id": pane_id,
+            "source": "recent_unwrapped",
+            "lines": lines,
+            "format": "text",
+            "strip_ansi": true
+        }
+    });
+    let request: Request = serde_json::from_value(request_value)
+        .map_err(|err| BridgeError::BadRequest(format!("invalid pane read: {err}")))?;
+    let api = state.api.clone();
+    let response = tokio::task::spawn_blocking(move || api.request(request))
+        .await
+        .map_err(|err| BridgeError::Protocol(err.to_string()))??;
+    match response.result {
+        ResponseResult::PaneRead { read } => Ok(Json(PaneTextResponse {
+            pane_id: read.pane_id,
+            text: read.text,
+            revision: read.revision,
+            truncated: read.truncated,
+        })),
+        other => Err(BridgeError::Protocol(format!(
+            "unexpected pane read response: {other:?}"
+        ))),
     }
 }
 

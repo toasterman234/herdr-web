@@ -4145,6 +4145,7 @@ export function App() {
                   ? terminalScreen.text
                   : ""
               }
+              httpUrl={selectedHttpUrl}
               onSend={(text) => {
                 if (selectedPane) sendTerminalChatMessage(selectedPane.terminal_id, text);
               }}

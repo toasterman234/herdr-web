@@ -4027,6 +4027,37 @@ button {
   font-style: italic;
 }
 
+.chat-turn-activity,
+.chat-imported-activity {
+  margin: 0 0 9px;
+  border: 1px solid var(--line-soft);
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--surface0) 58%, transparent);
+}
+
+.chat-turn-activity summary,
+.chat-imported-activity summary {
+  cursor: pointer;
+  padding: 7px 9px;
+  color: var(--overlay1);
+  font-size: 10.5px;
+  font-weight: 650;
+  user-select: none;
+}
+
+.chat-turn-activity ul,
+.chat-imported-activity ul {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0 10px 9px 25px;
+  color: var(--subtext0);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  line-height: 1.4;
+}
+
 .chat-composer {
   position: relative;
   display: grid;

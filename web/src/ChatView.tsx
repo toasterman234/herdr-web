@@ -1,5 +1,5 @@
 import { Bot, MessageSquare, Radio, Send, SquareTerminal, User } from "lucide-react";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import {
   fetchPaneTranscript,
   loadTerminalChatTurns,
@@ -12,6 +12,8 @@ import {
   type TerminalChatTurn,
 } from "./terminalChat";
 import type { PaneInfo } from "./types";
+
+const ChatMarkdown = lazy(() => import("./ChatMarkdown"));
 
 type Props = {
   pane: PaneInfo | null;
@@ -109,6 +111,7 @@ export function ChatView({ pane, bridgeId, screenText, httpUrl, onSend, onOpenTe
               ...turn,
               text: nextContent.text,
               activity: nextContent.activity,
+              rawText: nextDelta,
               status: pane.agent_status,
               live: true,
             }
@@ -202,7 +205,11 @@ export function ChatView({ pane, bridgeId, screenText, httpUrl, onSend, onOpenTe
                 <ul>{currentPreview.activity.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ul>
               </details>
             ) : null}
-            {currentPreview.text ? <pre>{currentPreview.text}</pre> : <p>Waiting for terminal output…</p>}
+            {currentPreview.text ? (
+              <Suspense fallback={<pre>{currentPreview.text}</pre>}>
+                <ChatMarkdown body={currentPreview.text} />
+              </Suspense>
+            ) : <p>Waiting for terminal output…</p>}
           </section>
         ) : null}
 
@@ -254,9 +261,21 @@ function ChatBubble({ turn, agentLabel }: { turn: TerminalChatTurn; agentLabel: 
             <ul>{turn.activity.map((line, index) => <li key={`${index}:${line}`}>{line}</li>)}</ul>
           </details>
         ) : null}
-        {turn.text ? <pre>{turn.text}</pre> : (
+        {turn.text ? (
+          isUser ? <p className="chat-user-text">{turn.text}</p> : (
+            <Suspense fallback={<pre>{turn.text}</pre>}>
+              <ChatMarkdown body={turn.text} />
+            </Suspense>
+          )
+        ) : (
           <p className="chat-working">{turn.activity?.length ? "Working…" : "Waiting for agent output…"}</p>
         )}
+        {!isUser && turn.rawText ? (
+          <details className="chat-turn-raw">
+            <summary><SquareTerminal size={12} /> Raw terminal</summary>
+            <pre>{turn.rawText}</pre>
+          </details>
+        ) : null}
       </div>
     </article>
   );

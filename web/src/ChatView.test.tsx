@@ -76,6 +76,7 @@ describe("ChatView", () => {
       );
     });
     expect(host.textContent).toContain("Fixed it");
+    expect(host.textContent).toContain("Raw terminal");
   });
 });
 

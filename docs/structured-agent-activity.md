@@ -185,3 +185,13 @@ Chat prefers this source because it preserves terminal history while joining sof
 The transcriptizer then applies generic presentation rules rather than agent adapters: terminal prompts, provider/status footers, compaction markers, spinners, and decorative rules are removed; large visual-column gaps are split into logical lines; command/action lines are grouped under a collapsible Activity section; single-space continuation rows are rejoined without flattening Markdown lists or code fences.
 
 Existing sessions are intentionally shown only as a bounded **Recent terminal preview**. The UI does not claim to reconstruct historical user/assistant turns that were never observed by the web client. Once a message is sent through Chat, the exact pre-send pane text becomes the baseline, so subsequent assistant turns can be derived much more cleanly.
+## Native chat rendering
+
+Assistant turns now render as GitHub-flavored Markdown instead of preformatted terminal text. The
+renderer is lazy-loaded so Markdown support does not inflate the initial app bundle. Headings, lists,
+links, blockquotes, inline code, fenced code, and tables render as chat-native components.
+
+Each assistant turn retains its cleaned terminal delta as `rawText`. The normal response shows the
+clean prose plus collapsible Activity, while a per-turn **Raw terminal** disclosure exposes the exact
+terminal-derived source used for that turn. This keeps the chat readable without removing the lossless
+debug path.

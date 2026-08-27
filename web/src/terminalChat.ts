@@ -5,6 +5,7 @@ export type TerminalChatTurn = {
   role: "user" | "assistant";
   text: string;
   activity?: string[];
+  rawText?: string;
   at: number;
   status?: AgentStatus;
   live?: boolean;

@@ -46,6 +46,7 @@ import type {
 import { Capacitor } from "@capacitor/core";
 import { Preferences } from "@capacitor/preferences";
 import { AgentIcon, agentIconKind } from "./AgentIcon";
+import { ActivityView } from "./ActivityView";
 import {
   agentActivityKey,
   agentActivityTimestamps,
@@ -203,6 +204,7 @@ type LoadState = "loading" | "ready" | "error";
 type Scope = "space" | "all";
 type HostScope = "selected" | "all";
 type SidebarView = "agents" | "tabs" | "notes";
+type StageViewMode = "activity" | "terminal";
 type AgentSort = "attention" | "status" | "workspace" | "lastStatusChange";
 type AgentGroup = "none" | "host" | "workspace" | "hostWorkspace";
 type SpaceGroup = "none" | "host";
@@ -1024,6 +1026,7 @@ export function App() {
   const [resizingNotesListPane, setResizingNotesListPane] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(initialPrefs.sidebarOpen);
   const [showDetail, setShowDetail] = useState(false);
+  const [stageViewMode, setStageViewMode] = useState<StageViewMode>("activity");
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [spaceReorderMode, setSpaceReorderMode] = useState<SpaceReorderMode | null>(null);
   const [spaceReorderAnnouncement, setSpaceReorderAnnouncement] = useState("");
@@ -3685,6 +3688,12 @@ export function App() {
   };
 
   const renderTerminal = !isCompactLayout || showDetail;
+  const selectedPaneLastTransition =
+    selectedRuntime && selectedPane
+      ? agentActivityTransitions.get(
+          agentActivityKey(selectedRuntime.id, selectedPane.pane_id, selectedPane.terminal_id),
+        ) ?? null
+      : null;
   const appStyle = {
     "--sidebar-w": `${sidebarWidth}px`,
     "--notes-w": `${notesPanelWidth}px`,
@@ -3963,7 +3972,31 @@ export function App() {
               {stageBreadcrumb(snapshot, selectedPane, loadState, selectedRuntime?.canConnect ?? false)}
             </span>
           </div>
-          {splitSupported && selectedPane && !isCompactLayout ? (
+          {selectedPane ? (
+            <div className="stage-view-switch" role="group" aria-label="Pane view">
+              <button
+                type="button"
+                data-active={stageViewMode === "activity" ? "true" : "false"}
+                aria-pressed={stageViewMode === "activity"}
+                title="Structured agent activity"
+                onClick={() => setStageViewMode("activity")}
+              >
+                <Activity size={15} />
+                <span>Activity</span>
+              </button>
+              <button
+                type="button"
+                data-active={stageViewMode === "terminal" ? "true" : "false"}
+                aria-pressed={stageViewMode === "terminal"}
+                title="Raw Herdr terminal"
+                onClick={() => setStageViewMode("terminal")}
+              >
+                <SquareTerminal size={15} />
+                <span>Terminal</span>
+              </button>
+            </div>
+          ) : null}
+          {splitSupported && selectedPane && !isCompactLayout && stageViewMode === "terminal" ? (
             <>
               <button
                 className="icon-btn"
@@ -4048,7 +4081,13 @@ export function App() {
           ) : null}
           {selectedPane ? <StatusBadge status={selectedPane.agent_status} /> : null}
         </header>
-        {showSplit && splitCells ? (
+        {renderTerminal && stageViewMode === "activity" ? (
+          <ActivityView
+            pane={selectedPane}
+            bridgeLabel={selectedRuntime?.label ?? null}
+            lastStatusTransitionAt={selectedPaneLastTransition}
+          />
+        ) : showSplit && splitCells ? (
           <SplitGrid
             cells={splitCells}
             selectedPaneId={selectedPane?.pane_id ?? null}
